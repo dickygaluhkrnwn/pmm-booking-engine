@@ -2,33 +2,22 @@
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { 
-  User, Phone, Globe, Edit3, CheckCircle, Loader2, 
-  CreditCard, Shield, Award, Utensils, X
+  User, Phone, Globe, Edit3, Loader2, 
+  CreditCard, Shield, Award, Utensils,
+  FileText, CheckCircle2, AlertCircle, Sparkles
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { doc, getDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
+import Image from 'next/image';
 
 export default function ProfilePage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [userId, setUserId] = useState("");
   const [userProfile, setUserProfile] = useState<any>(null);
-
-  // State untuk form
-  const [formData, setFormData] = useState({
-    fullName: '',
-    phone: '',
-    nationality: '',
-    passportNumber: '',
-    dietaryRequirements: 'None',
-    gender: 'Male',
-  });
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -36,22 +25,15 @@ export default function ProfilePage() {
         router.push('/login');
         return;
       }
-      setUserId(user.uid);
       try {
         const userDocRef = doc(db, 'users', user.uid);
         const userDocSnap = await getDoc(userDocRef);
         
         if (userDocSnap.exists()) {
-          const data = userDocSnap.data();
-          setUserProfile(data); // Simpan semua data untuk keperluan UI (seperti poin)
-          setFormData({
-            fullName: data.fullName || '',
-            phone: data.phone || '',
-            nationality: data.nationality || '',
-            passportNumber: data.passportNumber || '',
-            dietaryRequirements: data.dietaryRequirements || 'None',
-            gender: data.gender || 'Male',
-          });
+          setUserProfile(userDocSnap.data());
+        } else {
+          // Jika belum ada data sama sekali
+          setUserProfile({ email: user.email, pointsBalance: 0 });
         }
       } catch (error) {
         console.error("Error fetching profile:", error);
@@ -62,26 +44,6 @@ export default function ProfilePage() {
 
     return () => unsubscribe();
   }, [router]);
-
-  const handleSave = async () => {
-    setIsSaving(true);
-    try {
-      const userDocRef = doc(db, 'users', userId);
-      await updateDoc(userDocRef, formData);
-      
-      // Update state lokal agar UI langsung berubah tanpa refresh
-      setUserProfile((prev: any) => ({ ...prev, ...formData }));
-      setIsEditing(false); 
-    } catch (error) {
-      console.error("Error saving profile:", error);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
 
   if (isLoading) {
     return (
@@ -94,9 +56,11 @@ export default function ProfilePage() {
 
   return (
     <div className="min-h-screen bg-[#F8F9FA] font-sans pb-20">
+      {/* Header tetap dipertahankan untuk navigasi yang konsisten */}
       <DashboardHeader />
 
-      <main className="max-w-4xl mx-auto px-4 mt-8">
+      {/* Ditambahkan pt-28 agar konten tidak tertutup fixed header */}
+      <main className="max-w-4xl mx-auto px-4 pt-28">
         
         {/* VIP MEMBER CARD BANNERS */}
         <motion.div 
@@ -104,227 +68,198 @@ export default function ProfilePage() {
           animate={{ opacity: 1, y: 0 }}
           className="bg-navy rounded-3xl p-8 shadow-2xl relative overflow-hidden text-white mb-8 border border-navy/20"
         >
-          {/* Efek Kilauan Emas */}
+          {/* Efek Kilauan Emas & Pola Geometris Mewah */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-gold/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
           <div className="absolute bottom-0 left-10 w-40 h-40 bg-white/5 rounded-full blur-2xl translate-y-1/2" />
+          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#D4AF37_1px,transparent_1px)] [background-size:20px_20px] mix-blend-overlay" />
           
           <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex items-center gap-6">
-              <div className="w-20 h-20 bg-gradient-to-br from-gold to-[#b8972e] rounded-full p-1 shadow-lg">
-                <div className="w-full h-full bg-navy rounded-full flex items-center justify-center border-2 border-transparent">
-                  <span className="text-3xl font-bold text-gold">
-                    {userProfile?.fullName ? userProfile.fullName.charAt(0).toUpperCase() : <User className="w-8 h-8 text-gold" />}
-                  </span>
+              
+              {/* Foto Profil Avatar */}
+              <div className="w-24 h-24 bg-gradient-to-br from-gold to-[#b8972e] rounded-full p-1 shadow-xl flex-shrink-0 relative">
+                <div className="w-full h-full bg-navy rounded-full flex items-center justify-center border-2 border-transparent overflow-hidden">
+                  {userProfile?.photoUrl ? (
+                    <Image 
+                      src={userProfile.photoUrl} 
+                      alt="Profile" 
+                      width={96} 
+                      height={96} 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-4xl font-bold text-gold">
+                      {userProfile?.fullName ? userProfile.fullName.charAt(0).toUpperCase() : <User className="w-10 h-10 text-gold" />}
+                    </span>
+                  )}
+                </div>
+                {/* Badge Checklist Kecil di Foto */}
+                <div className="absolute bottom-0 right-0 bg-white rounded-full p-1 shadow-md">
+                  <CheckCircle2 className="w-5 h-5 text-green-500" />
                 </div>
               </div>
+
               <div>
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1.5">
                   <Shield className="w-4 h-4 text-gold" />
-                  <span className="text-xs font-bold tracking-widest text-gold uppercase">Verified Member</span>
+                  <span className="text-xs font-bold tracking-widest text-gold uppercase">Verified Identity</span>
                 </div>
                 <h1 className="text-3xl font-extrabold text-white mb-1 truncate max-w-[250px] md:max-w-md">
                   {userProfile?.fullName || 'Esteemed Guest'}
                 </h1>
-                <p className="text-gray-400 text-sm">{auth.currentUser?.email}</p>
+                <p className="text-gray-400 text-sm font-medium">{auth.currentUser?.email}</p>
               </div>
             </div>
             
-            <div className="bg-white/10 border border-white/20 rounded-2xl p-4 backdrop-blur-md min-w-[160px] text-center md:text-right">
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1 flex items-center justify-center md:justify-end gap-1">
-                <Award className="w-3 h-3 text-gold" /> Gold Points
+            <div className="bg-white/10 border border-white/20 rounded-2xl p-5 backdrop-blur-md min-w-[180px] text-center md:text-right shadow-inner">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-1.5 flex items-center justify-center md:justify-end gap-1.5">
+                <Award className="w-4 h-4 text-gold" /> Gold Points
               </p>
-              <p className="text-3xl font-extrabold text-white">
+              <p className="text-4xl font-extrabold text-white tracking-tight">
                 {userProfile?.pointsBalance || 0}
               </p>
             </div>
           </div>
         </motion.div>
 
-        {/* PROFILE DETAILS FORM */}
+        {/* PROFILE DETAILS - VIEW ONLY */}
         <motion.div 
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
-          className="bg-white rounded-3xl p-8 md:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100"
+          className="bg-white rounded-3xl p-8 md:p-10 shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden"
         >
-          <div className="flex flex-col md:flex-row md:items-center justify-between mb-8 pb-6 border-b border-gray-100 gap-4">
+          {/* Watermark Logo PMM di Background */}
+          <div className="absolute -right-10 -bottom-10 opacity-[0.02] pointer-events-none">
+            <Shield className="w-96 h-96 text-navy" />
+          </div>
+
+          <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between mb-10 pb-6 border-b border-gray-100 gap-4">
             <div>
-              <h2 className="text-2xl font-extrabold text-navy mb-1">Personal Identity</h2>
-              <p className="text-gray-500 text-sm">This information will be used to autofill your future expedition bookings.</p>
+              <h2 className="text-2xl font-extrabold text-navy mb-2">Personal Identity</h2>
+              <p className="text-gray-500 text-sm">Your information is securely stored for faster expedition bookings.</p>
             </div>
             
-            {/* Tombol Toggle Edit / Save */}
-            <AnimatePresence mode="wait">
-              {!isEditing ? (
-                <motion.button 
-                  key="edit"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center justify-center gap-2 bg-white border border-gray-200 text-navy hover:border-gold hover:text-gold px-6 py-3 rounded-xl text-sm font-bold transition-all shadow-sm"
-                >
-                  <Edit3 className="w-4 h-4" /> Update Details
-                </motion.button>
-              ) : (
-                <motion.div 
-                  key="actions"
-                  initial={{ opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  className="flex items-center gap-3"
-                >
-                  <button 
-                    onClick={() => {
-                      // Reset form ke data asli jika dibatalkan
-                      setFormData({
-                        fullName: userProfile?.fullName || '',
-                        phone: userProfile?.phone || '',
-                        nationality: userProfile?.nationality || '',
-                        passportNumber: userProfile?.passportNumber || '',
-                        dietaryRequirements: userProfile?.dietaryRequirements || 'None',
-                        gender: userProfile?.gender || 'Male',
-                      });
-                      setIsEditing(false);
-                    }}
-                    className="p-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
-                    disabled={isSaving}
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                  <button 
-                    onClick={handleSave}
-                    disabled={isSaving}
-                    className="flex items-center gap-2 bg-gold text-navy hover:bg-[#b8972e] shadow-lg shadow-gold/20 px-6 py-3 rounded-xl text-sm font-bold transition-all disabled:opacity-70"
-                  >
-                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                    Save Changes
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <motion.button 
+              whileHover={{ scale: 1.02, backgroundColor: "#122643" }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => router.push('/dashboard/profile/edit')}
+              className="flex items-center justify-center gap-2 bg-navy text-white px-6 py-3.5 rounded-xl text-sm font-bold transition-all shadow-xl shadow-navy/20"
+            >
+              <Edit3 className="w-4 h-4" /> Edit Profile
+            </motion.button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            
-            {/* Full Name */}
-            <div className="group">
-              <label className="text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-widest block">Full Name (As in Passport)</label>
-              {isEditing ? (
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input type="text" name="fullName" value={formData.fullName} onChange={handleChange} className="w-full bg-gray-50 border border-gray-200 text-navy px-4 py-3 pl-12 rounded-xl focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold transition-all" placeholder="Enter your full name" />
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-transparent group-hover:border-gray-100 transition-colors">
-                  <User className="w-5 h-5 text-gold" />
-                  <span className={`font-bold text-lg ${formData.fullName ? 'text-navy' : 'text-gray-400 italic'}`}>
-                    {formData.fullName || 'Not provided yet'}
-                  </span>
-                </div>
-              )}
+          <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 mb-10">
+            {/* Tampilan Data dengan Desain "Passport Card" */}
+            <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100 hover:border-gold/30 transition-colors group">
+              <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest block">Full Name (As in Passport)</label>
+              <div className="flex items-center gap-3">
+                <div className="bg-white p-2 rounded-lg shadow-sm group-hover:text-gold transition-colors"><User className="w-5 h-5 text-navy group-hover:text-gold" /></div>
+                <span className={`font-bold text-lg ${userProfile?.fullName ? 'text-navy' : 'text-gray-400 italic'}`}>
+                  {userProfile?.fullName || 'Not provided yet'}
+                </span>
+              </div>
             </div>
 
-            {/* Phone Number */}
-            <div className="group">
-              <label className="text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-widest block">WhatsApp Number</label>
-              {isEditing ? (
-                <div className="relative">
-                  <Phone className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full bg-gray-50 border border-gray-200 text-navy px-4 py-3 pl-12 rounded-xl focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold transition-all" placeholder="+62..." />
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-transparent group-hover:border-gray-100 transition-colors">
-                  <Phone className="w-5 h-5 text-gold" />
-                  <span className={`font-bold text-lg ${formData.phone ? 'text-navy' : 'text-gray-400 italic'}`}>
-                    {formData.phone || 'Not provided yet'}
-                  </span>
-                </div>
-              )}
+            <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100 hover:border-gold/30 transition-colors group">
+              <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest block">WhatsApp Number</label>
+              <div className="flex items-center gap-3">
+                <div className="bg-white p-2 rounded-lg shadow-sm group-hover:text-gold transition-colors"><Phone className="w-5 h-5 text-navy group-hover:text-gold" /></div>
+                <span className={`font-bold text-lg font-mono tracking-tight ${userProfile?.phone ? 'text-navy' : 'text-gray-400 italic font-sans'}`}>
+                  {userProfile?.phone || 'Not provided yet'}
+                </span>
+              </div>
             </div>
 
-            {/* Nationality */}
-            <div className="group">
-              <label className="text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-widest block">Nationality</label>
-              {isEditing ? (
-                <div className="relative">
-                  <Globe className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input type="text" name="nationality" value={formData.nationality} onChange={handleChange} className="w-full bg-gray-50 border border-gray-200 text-navy px-4 py-3 pl-12 rounded-xl focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold transition-all" placeholder="e.g. United Kingdom" />
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-transparent group-hover:border-gray-100 transition-colors">
-                  <Globe className="w-5 h-5 text-gold" />
-                  <span className={`font-bold text-lg ${formData.nationality ? 'text-navy' : 'text-gray-400 italic'}`}>
-                    {formData.nationality || 'Not provided yet'}
-                  </span>
-                </div>
-              )}
+            <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100 hover:border-gold/30 transition-colors group">
+              <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest block">Nationality</label>
+              <div className="flex items-center gap-3">
+                <div className="bg-white p-2 rounded-lg shadow-sm group-hover:text-gold transition-colors"><Globe className="w-5 h-5 text-navy group-hover:text-gold" /></div>
+                <span className={`font-bold text-lg ${userProfile?.nationality ? 'text-navy' : 'text-gray-400 italic'}`}>
+                  {userProfile?.nationality || 'Not provided yet'}
+                </span>
+              </div>
             </div>
 
-            {/* Passport Number */}
-            <div className="group">
-              <label className="text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-widest block">Passport / ID Number</label>
-              {isEditing ? (
-                <div className="relative">
-                  <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <input type="text" name="passportNumber" value={formData.passportNumber} onChange={handleChange} className="w-full bg-gray-50 border border-gray-200 text-navy px-4 py-3 pl-12 rounded-xl focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold transition-all" placeholder="Document number" />
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-transparent group-hover:border-gray-100 transition-colors">
-                  <CreditCard className="w-5 h-5 text-gold" />
-                  <span className={`font-bold text-lg ${formData.passportNumber ? 'text-navy uppercase tracking-wider' : 'text-gray-400 italic'}`}>
-                    {formData.passportNumber || 'Not provided yet'}
-                  </span>
-                </div>
-              )}
+            <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100 hover:border-gold/30 transition-colors group">
+              <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest block">Gender</label>
+              <div className="flex items-center gap-3">
+                <div className="bg-white p-2 rounded-lg shadow-sm group-hover:text-gold transition-colors"><User className="w-5 h-5 text-navy group-hover:text-gold" /></div>
+                <span className={`font-bold text-lg ${userProfile?.gender ? 'text-navy' : 'text-gray-400 italic'}`}>
+                  {userProfile?.gender || 'Not provided yet'}
+                </span>
+              </div>
             </div>
 
-            {/* Gender */}
-            <div className="group">
-              <label className="text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-widest block">Gender</label>
-              {isEditing ? (
-                <div className="relative">
-                  <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <select name="gender" value={formData.gender} onChange={handleChange} className="w-full bg-gray-50 border border-gray-200 text-navy px-4 py-3 pl-12 rounded-xl focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold transition-all appearance-none">
-                    <option value="Male">Male</option>
-                    <option value="Female">Female</option>
-                  </select>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-transparent group-hover:border-gray-100 transition-colors">
-                  <User className="w-5 h-5 text-gold" />
-                  <span className={`font-bold text-lg ${formData.gender ? 'text-navy' : 'text-gray-400 italic'}`}>
-                    {formData.gender || 'Not provided yet'}
-                  </span>
-                </div>
-              )}
+            <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100 hover:border-gold/30 transition-colors group">
+              <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest block">Passport / ID Number</label>
+              <div className="flex items-center gap-3">
+                <div className="bg-white p-2 rounded-lg shadow-sm group-hover:text-gold transition-colors"><CreditCard className="w-5 h-5 text-navy group-hover:text-gold" /></div>
+                <span className={`font-bold text-lg ${userProfile?.passportNumber ? 'text-navy uppercase tracking-widest font-mono' : 'text-gray-400 italic font-sans'}`}>
+                  {userProfile?.passportNumber || 'Not provided yet'}
+                </span>
+              </div>
             </div>
 
-            {/* Dietary */}
-            <div className="group">
-              <label className="text-[10px] font-bold text-gray-400 mb-2 uppercase tracking-widest block">Dietary Requirements</label>
-              {isEditing ? (
-                <div className="relative">
-                  <Utensils className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                  <select name="dietaryRequirements" value={formData.dietaryRequirements} onChange={handleChange} className="w-full bg-gray-50 border border-gray-200 text-navy px-4 py-3 pl-12 rounded-xl focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold transition-all appearance-none">
-                    <option value="None">None (Eat Anything)</option>
-                    <option value="Vegetarian">Vegetarian</option>
-                    <option value="Vegan">Vegan</option>
-                    <option value="Halal">Halal</option>
-                    <option value="Gluten-Free">Gluten-Free</option>
-                  </select>
-                </div>
-              ) : (
-                <div className="flex items-center gap-3 p-4 bg-gray-50 rounded-xl border border-transparent group-hover:border-gray-100 transition-colors">
-                  <Utensils className="w-5 h-5 text-gold" />
-                  <span className={`font-bold text-lg ${formData.dietaryRequirements ? 'text-navy' : 'text-gray-400 italic'}`}>
-                    {formData.dietaryRequirements || 'None'}
-                  </span>
-                </div>
-              )}
+            <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100 hover:border-gold/30 transition-colors group">
+              <label className="text-[10px] font-bold text-gray-400 mb-1.5 uppercase tracking-widest block">Dietary Requirements</label>
+              <div className="flex items-center gap-3">
+                <div className="bg-white p-2 rounded-lg shadow-sm group-hover:text-gold transition-colors"><Utensils className="w-5 h-5 text-navy group-hover:text-gold" /></div>
+                <span className={`font-bold text-lg ${userProfile?.dietaryRequirements ? 'text-navy' : 'text-gray-400 italic'}`}>
+                  {userProfile?.dietaryRequirements || 'None'}
+                </span>
+              </div>
             </div>
-
           </div>
+
+          {/* TRAVEL DOCUMENTS STATUS */}
+          <div className="relative z-10 pt-8 border-t border-gray-100">
+             <h3 className="text-xl font-extrabold text-navy mb-4 flex items-center gap-2">
+               <FileText className="w-5 h-5 text-gold" /> Travel Documentation
+             </h3>
+             
+             {userProfile?.passportFileUrl ? (
+               <div className="bg-green-50 border border-green-200 rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm">
+                 <div className="flex items-center gap-4">
+                   <div className="bg-green-100 p-3 rounded-full shadow-inner">
+                     <CheckCircle2 className="w-7 h-7 text-green-600" />
+                   </div>
+                   <div>
+                     <p className="font-bold text-green-900 text-lg">Passport Uploaded</p>
+                     <p className="text-sm text-green-700 mt-0.5">Your document is securely stored and verified.</p>
+                   </div>
+                 </div>
+                 <a 
+                   href={userProfile.passportFileUrl} 
+                   target="_blank" 
+                   rel="noopener noreferrer"
+                   className="bg-white border border-green-200 text-green-700 hover:bg-green-100 px-5 py-2.5 rounded-xl text-sm font-bold transition-colors text-center shadow-sm"
+                 >
+                   View Document
+                 </a>
+               </div>
+             ) : (
+               <div className="bg-red-50 border border-red-200 rounded-2xl p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+                 <div className="flex items-center gap-4">
+                   <div className="bg-red-100 p-3 rounded-full shadow-inner">
+                     <AlertCircle className="w-7 h-7 text-red-600" />
+                   </div>
+                   <div>
+                     <p className="font-bold text-red-900 text-lg">Passport Missing</p>
+                     <p className="text-sm text-red-700 mt-0.5">Required for harbor clearance before departure.</p>
+                   </div>
+                 </div>
+                 <button 
+                   onClick={() => router.push('/dashboard/profile/edit')}
+                   className="bg-red-600 text-white px-6 py-2.5 rounded-xl text-sm font-bold hover:bg-red-700 transition-colors shadow-lg shadow-red-600/20 w-full sm:w-auto text-center"
+                 >
+                   Upload Now
+                 </button>
+               </div>
+             )}
+          </div>
+
         </motion.div>
       </main>
     </div>
