@@ -14,6 +14,9 @@ import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firesto
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
 import Image from 'next/image';
 
+// --- IMPORT KOMPONEN REVIEW MANAGER BARU KITA ---
+import { ReviewManager } from '@/components/dashboard/ReviewManager';
+
 interface Booking {
   id: string;
   dateOfDeparture: string;
@@ -54,9 +57,9 @@ export default function DashboardPage() {
         const userDocSnap = await getDoc(userDocRef);
         
         if (userDocSnap.exists()) {
-          setUserProfile(userDocSnap.data());
+          setUserProfile({ uid: user.uid, email: user.email, ...userDocSnap.data() });
         } else {
-          setUserProfile({ email: user.email, pointsBalance: 0 });
+          setUserProfile({ uid: user.uid, email: user.email, pointsBalance: 0 });
         }
 
         const bookingsRef = collection(db, 'bookings');
@@ -106,23 +109,20 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] font-sans pb-20">
+    <div className="min-h-screen bg-[#F8F9FA] font-sans pb-20 selection:bg-gold selection:text-navy">
       <DashboardHeader />
 
-      {/* Ditambahkan pt-28 (padding top) agar tidak tertutup header yang fixed */}
       <main className="max-w-6xl mx-auto px-4 pt-28 grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* KOLOM KIRI: Profil & Poin (Sticky di desktop) */}
+        {/* KOLOM KIRI: Profil & Poin */}
         <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-28 h-max">
-          
-          {/* Kartu Member Premium */}
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
-            className="bg-navy rounded-3xl p-8 shadow-2xl relative overflow-hidden text-white border border-navy/20"
+            className="bg-navy rounded-[2.5rem] p-8 shadow-[0_20px_50px_rgb(0,0,0,0.06)] relative overflow-hidden text-white border border-navy/20"
           >
-            <div className="absolute top-0 right-0 w-48 h-48 bg-gold/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2" />
-            <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2" />
+            <div className="absolute top-0 right-0 w-48 h-48 bg-gold/15 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2 pointer-events-none" />
             
             <div className="relative z-10">
               <p className="text-gold text-xs font-bold tracking-widest uppercase mb-6 flex items-center gap-2">
@@ -133,13 +133,7 @@ export default function DashboardPage() {
                 <div className="w-16 h-16 rounded-full bg-gradient-to-br from-gold to-[#b8972e] p-[2px] shadow-lg">
                   <div className="w-full h-full rounded-full bg-navy flex items-center justify-center overflow-hidden">
                     {userProfile?.photoUrl ? (
-                      <Image 
-                        src={userProfile.photoUrl} 
-                        alt="Avatar" 
-                        width={64} 
-                        height={64} 
-                        className="w-full h-full object-cover"
-                      />
+                      <Image src={userProfile.photoUrl} alt="Avatar" width={64} height={64} className="w-full h-full object-cover" />
                     ) : (
                       <span className="text-2xl font-bold text-gold">
                         {userProfile?.fullName ? userProfile.fullName.charAt(0).toUpperCase() : <User className="w-6 h-6 text-gold" />}
@@ -172,7 +166,6 @@ export default function DashboardPage() {
             </div>
           </motion.div>
 
-          {/* Quick Links Modern */}
           <motion.div 
             initial={{ opacity: 0, x: -20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -182,10 +175,7 @@ export default function DashboardPage() {
             <h3 className="font-extrabold text-navy mb-4">Quick Links</h3>
             <ul className="space-y-2">
               <li>
-                <button 
-                  onClick={() => router.push('/dashboard/profile')}
-                  className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-gray-50 transition-all text-sm font-bold text-navy border border-transparent hover:border-gray-100 group"
-                >
+                <button onClick={() => router.push('/dashboard/profile')} className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-gray-50 transition-all text-sm font-bold text-navy border border-transparent hover:border-gray-100 group">
                   <span className="flex items-center gap-3">
                     <div className="bg-navy/5 p-2 rounded-xl group-hover:bg-gold/10 transition-colors"><User className="w-4 h-4 text-navy group-hover:text-gold" /></div>
                     Member Identity Card
@@ -194,10 +184,7 @@ export default function DashboardPage() {
                 </button>
               </li>
               <li>
-                <button 
-                  onClick={() => router.push('/rewards')}
-                  className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-gray-50 transition-all text-sm font-bold text-navy border border-transparent hover:border-gray-100 group"
-                >
+                <button onClick={() => router.push('/rewards')} className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-gray-50 transition-all text-sm font-bold text-navy border border-transparent hover:border-gray-100 group">
                   <span className="flex items-center gap-3">
                     <div className="bg-navy/5 p-2 rounded-xl group-hover:bg-gold/10 transition-colors"><Award className="w-4 h-4 text-navy group-hover:text-gold" /></div>
                     Rewards Catalog
@@ -211,7 +198,6 @@ export default function DashboardPage() {
 
         {/* KOLOM KANAN: Daftar Pesanan */}
         <div className="lg:col-span-8">
-          
           <motion.div 
              initial={{ opacity: 0, y: 20 }}
              animate={{ opacity: 1, y: 0 }}
@@ -220,34 +206,25 @@ export default function DashboardPage() {
           >
             <div>
               <h2 className="text-3xl font-extrabold text-navy">My Expeditions</h2>
-              <p className="text-gray-500 text-sm mt-1">Manage your voyages and passenger manifests.</p>
+              <p className="text-gray-500 text-sm mt-1">Manage your voyages and share your daily journal.</p>
             </div>
             
-            {/* Tombol Book New Voyage - CTA Utama */}
             <button 
               onClick={() => router.push('/')}
               className="hidden sm:flex items-center gap-2 bg-gold hover:bg-[#b8972e] text-navy px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-gold/20 transition-all hover:-translate-y-0.5"
             >
-              <Plus className="w-4 h-4" />
-              New Voyage
+              <Plus className="w-4 h-4" /> New Voyage
             </button>
           </motion.div>
 
           {bookings.length === 0 ? (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="bg-white rounded-3xl p-12 text-center border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]"
-            >
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-3xl p-12 text-center border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
               <div className="w-24 h-24 bg-navy/5 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Compass className="w-10 h-10 text-gold" />
               </div>
               <h3 className="text-2xl font-extrabold text-navy mb-2">No Expeditions Yet</h3>
               <p className="text-gray-500 mb-8 max-w-md mx-auto">Your vault is currently empty. Ready to explore the magnificent islands of Komodo?</p>
-              <button 
-                onClick={() => router.push('/')}
-                className="bg-navy text-white px-8 py-4 rounded-xl font-bold hover:bg-[#122643] transition-all shadow-xl shadow-navy/20 hover:-translate-y-1"
-              >
+              <button onClick={() => router.push('/')} className="bg-navy text-white px-8 py-4 rounded-xl font-bold hover:bg-[#122643] transition-all shadow-xl shadow-navy/20 hover:-translate-y-1">
                 Discover Voyages
               </button>
             </motion.div>
@@ -262,24 +239,20 @@ export default function DashboardPage() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 * index }}
-                    className={`bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col relative group transition-all hover:shadow-lg ${upcoming ? 'border-2 border-gold/30' : 'border border-gray-100'}`}
+                    className={`bg-white rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col relative group transition-all hover:shadow-xl ${upcoming ? 'border-2 border-gold/30' : 'border border-gray-100'}`}
                   >
-                    {/* Badge Khusus untuk Perjalanan Mendatang */}
                     {upcoming && (
                       <div className="absolute top-0 right-0 bg-gold text-navy text-[10px] font-extrabold px-4 py-1.5 rounded-bl-2xl z-20 uppercase tracking-widest shadow-sm">
                         Upcoming Voyage
                       </div>
                     )}
 
-                    {/* Bagian Atas: Info Tiket Utama */}
                     <div className="flex flex-col md:flex-row relative z-10 bg-white">
                       
-                      {/* Ornamen Tiket Sobek Premium */}
                       <div className="hidden md:block absolute left-[30%] top-0 bottom-0 w-px border-l-[1.5px] border-dashed border-gray-200" />
                       <div className="hidden md:block absolute left-[30%] -top-3 w-6 h-6 bg-[#F8F9FA] rounded-full -translate-x-1/2 shadow-inner" />
                       <div className="hidden md:block absolute left-[30%] -bottom-3 w-6 h-6 bg-[#F8F9FA] rounded-full -translate-x-1/2 shadow-inner" />
 
-                      {/* Status Tiket (Kiri) */}
                       <div className={`p-6 md:w-[30%] flex flex-col justify-center items-center text-center ${upcoming ? 'bg-gold/5' : 'bg-navy/5'}`}>
                         <span className={`px-4 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest mb-4 shadow-sm ${
                           booking.status === 'PAID' ? 'bg-green-100 text-green-700 border border-green-200' : 
@@ -291,7 +264,6 @@ export default function DashboardPage() {
                         <p className="font-mono text-sm font-extrabold text-navy truncate w-full px-2">{booking.id}</p>
                       </div>
 
-                      {/* Detail Perjalanan (Kanan) */}
                       <div className="p-6 md:p-8 md:w-[70%] flex flex-col justify-between">
                         <div>
                           <div className="flex items-start justify-between mb-6">
@@ -317,19 +289,17 @@ export default function DashboardPage() {
                             </div>
                             <div className="flex items-center gap-2">
                               <div className="bg-gray-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-navy" /></div>
-                              <span className="font-semibold">3 Days 2 Nights</span>
+                              <span className="font-semibold">4 Days 3 Nights</span>
                             </div>
                           </div>
                         </div>
 
-                        {/* Action Area & Toggle Penumpang */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-5 border-t border-gray-100 gap-4">
                           <button 
                             onClick={() => toggleExpand(booking.id)}
                             className="flex items-center gap-2 text-sm font-bold text-navy hover:text-gold transition-colors w-max"
                           >
-                            <User className="w-4 h-4" />
-                            Passenger Manifest
+                            <User className="w-4 h-4" /> Passenger Manifest
                             <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expandedBookingId === booking.id ? 'rotate-180' : ''}`} />
                           </button>
                           
@@ -344,6 +314,13 @@ export default function DashboardPage() {
                         </div>
                       </div>
                     </div>
+
+                    {/* === INTEGRASI KOMPONEN JURNAL ULASAN HARIAN === */}
+                    {booking.status === 'PAID' && (
+                      <div className="px-6 pb-6 md:px-8 md:pb-8 bg-white relative z-10">
+                        <ReviewManager booking={booking} userProfile={userProfile} />
+                      </div>
+                    )}
 
                     {/* Dropdown Data Penumpang (Accordion) */}
                     <AnimatePresence>
@@ -378,9 +355,7 @@ export default function DashboardPage() {
                                   </div>
                                   <div className="text-left sm:text-right bg-gray-50 sm:bg-transparent p-3 sm:p-0 rounded-xl">
                                     <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Passport</p>
-                                    <p className="text-sm font-bold text-navy font-mono">
-                                      {pax.passportNumber}
-                                    </p>
+                                    <p className="text-sm font-bold text-navy font-mono">{pax.passportNumber}</p>
                                     {pax.dietaryRequirements && pax.dietaryRequirements !== 'None' && (
                                       <p className="text-[10px] bg-red-50 text-red-600 font-extrabold uppercase px-2 py-1 rounded-md mt-2 inline-block sm:block w-max sm:ml-auto">
                                         {pax.dietaryRequirements}
@@ -400,15 +375,13 @@ export default function DashboardPage() {
             </div>
           )}
           
-          {/* Tombol Book New Voyage Versi Mobile (Hanya muncul jika di layar HP dan ada tiket) */}
           {bookings.length > 0 && (
             <div className="mt-8 sm:hidden">
               <button 
                 onClick={() => router.push('/')}
                 className="w-full flex items-center justify-center gap-2 bg-gold hover:bg-[#b8972e] text-navy px-5 py-4 rounded-2xl font-bold shadow-lg shadow-gold/20 transition-all"
               >
-                <Plus className="w-5 h-5" />
-                Book Another Voyage
+                <Plus className="w-5 h-5" /> Book Another Voyage
               </button>
             </div>
           )}

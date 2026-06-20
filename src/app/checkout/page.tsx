@@ -1,15 +1,25 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { motion } from 'framer-motion';
-import { ArrowLeft, User, Mail, Phone, Calendar as CalendarIcon, ShieldCheck, MapPin, CheckCircle2, Info, UploadCloud, Check } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  ArrowLeft, User, Mail, Phone, Calendar as CalendarIcon, 
+  ShieldCheck, MapPin, CheckCircle2, UploadCloud, Check, 
+  BedDouble, FileText, Loader2, ChevronRight, ShoppingCart, Lock,
+  Ticket, XCircle,
+  Info
+} from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Modal } from '@/components/ui/Modal';
+import { auth, db } from '@/lib/firebase';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface PassengerDetail {
   id: number;
+  cabinName: string; 
   fullName: string;
   gender: string;
   placeOfBirth: string;
@@ -25,14 +35,25 @@ function CheckoutContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Parameter URL
+  // 1. Ekstraksi Parameter URL
   const selectedDate = searchParams.get('date') || '';
-  const cabinType = searchParams.get('cabin') || 'Dormitory';
-  const paxCount = parseInt(searchParams.get('pax') || '1', 10);
+  const cartParam = searchParams.get('cart') || '{}';
+  const paxCount = parseInt(searchParams.get('pax') || '0', 10);
 
-  // Harga (Bisa dimodifikasi dari Admin kelak)
-  const pricePerPax = cabinType === 'Private' ? 450 : 250;
-  const totalPrice = pricePerPax * paxCount;
+  const initialCart = useMemo(() => {
+    try {
+      return JSON.parse(decodeURIComponent(cartParam)) as Record<string, number>;
+    } catch (error) {
+      console.error("Invalid cart data", error);
+      return {};
+    }
+  }, [cartParam]);
+
+  // State Data Firestore & Harga
+  const [basePrice, setBasePrice] = useState(0);
+  const [isFetchingPrice, setIsFetchingPrice] = useState(true);
+  const [cabinDetails, setCabinDetails] = useState<any[]>([]);
+  const [currentUser, setCurrentUser] = useState<any>(null);
 
   // State Contact & Pickup
   const [email, setEmail] = useState('');
@@ -40,36 +61,162 @@ function CheckoutContent() {
   const [pickupArea, setPickupArea] = useState('');
   const [pickupLocation, setPickupLocation] = useState('');
   
-  // State Passengers & Upload
+  // State Passengers
   const [passengers, setPassengers] = useState<PassengerDetail[]>([]);
   const [uploadingState, setUploadingState] = useState<{ [key: number]: boolean }>({});
+  
+  // State Voucher System
+  const [voucherCode, setVoucherCode] = useState('');
+  const [appliedVoucher, setAppliedVoucher] = useState<any>(null);
+  const [isVerifyingVoucher, setIsVerifyingVoucher] = useState(false);
+  const [voucherError, setVoucherError] = useState('');
   
   // State UI
   const [isLoading, setIsLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  // Inisialisasi Form
+  // Auto-Fill User Data jika sudah login
   useEffect(() => {
-    if (!selectedDate) {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setCurrentUser(user);
+        setEmail(user.email || '');
+        // Ambil nomor telp dari profil
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists() && userDoc.data().phone) {
+          setPhone(userDoc.data().phone);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
+
+  // Inisialisasi Form Penumpang
+  useEffect(() => {
+    if (!selectedDate || Object.keys(initialCart).length === 0) {
       router.push('/');
       return;
     }
 
-    const initialPassengers = Array.from({ length: paxCount }).map((_, index) => ({
-      id: index + 1,
-      fullName: '',
-      gender: '',
-      placeOfBirth: '',
-      dateOfBirth: '',
-      age: 0,
-      passportNumber: '',
-      nationality: '',
-      dietaryRequirements: '',
-      passportFileUrl: ''
-    }));
+    let paxIndex = 1;
+    const initialPassengers: PassengerDetail[] = [];
+    
+    Object.entries(initialCart).forEach(([cabin, count]) => {
+      for (let i = 0; i < count; i++) {
+        initialPassengers.push({
+          id: paxIndex++,
+          cabinName: cabin,
+          fullName: '',
+          gender: '',
+          placeOfBirth: '',
+          dateOfBirth: '',
+          age: 0,
+          passportNumber: '',
+          nationality: '',
+          dietaryRequirements: 'None',
+          passportFileUrl: ''
+        });
+      }
+    });
+    
     setPassengers(initialPassengers);
-  }, [paxCount, selectedDate, router]);
+  }, [initialCart, selectedDate, router]);
+
+  // Fetch Harga Kabin dari Firestore
+  useEffect(() => {
+    const fetchAndCalculatePrice = async () => {
+      try {
+        const docRef = doc(db, 'settings', 'expedition');
+        const docSnap = await getDoc(docRef);
+        
+        let calculatedTotal = 0;
+        let fetchedCabins: any[] = [];
+
+        if (docSnap.exists() && docSnap.data().cabinPackages) {
+          fetchedCabins = docSnap.data().cabinPackages;
+          setCabinDetails(fetchedCabins);
+        }
+
+        Object.entries(initialCart).forEach(([cabinName, count]) => {
+          const matchedCabin = fetchedCabins.find((c: any) => c.name === cabinName);
+          let priceNum = 0;
+          
+          if (matchedCabin && matchedCabin.price) {
+            priceNum = parseInt(matchedCabin.price.replace(/,/g, '').replace('K', '000').replace(/[^0-9]/g, '')) || 0;
+          } else {
+            const nameLower = cabinName.toLowerCase();
+            if (nameLower.includes('sea view')) priceNum = 4600000;
+            else if (nameLower.includes('standard')) priceNum = 4200000;
+            else if (nameLower.includes('down deck')) priceNum = 3800000;
+            else priceNum = 3600000;
+          }
+          calculatedTotal += (priceNum * count);
+        });
+        
+        setBasePrice(calculatedTotal);
+      } catch (error) {
+        console.error("Error calculating price:", error);
+      } finally {
+        setIsFetchingPrice(false);
+      }
+    };
+
+    if (Object.keys(initialCart).length > 0) {
+      fetchAndCalculatePrice();
+    }
+  }, [initialCart]);
+
+  // Kalkulasi Total Akhir
+  const discountAmount = appliedVoucher ? appliedVoucher.discountValue : 0;
+  const finalPrice = Math.max(0, basePrice - discountAmount);
+
+  // --- LOGIKA VERIFIKASI VOUCHER ---
+  const handleApplyVoucher = async () => {
+    if (!voucherCode.trim()) return;
+    if (!currentUser) {
+      setVoucherError("You must be logged in to apply a voucher.");
+      return;
+    }
+
+    setIsVerifyingVoucher(true);
+    setVoucherError('');
+
+    try {
+      // Format Code: "NEW-123456789". Kita cari berdasarkan ID document di koleksi user_rewards
+      const q = query(
+        collection(db, 'user_rewards'), 
+        where('userId', '==', currentUser.uid),
+        where('status', '==', 'ACTIVE')
+      );
+      
+      const querySnapshot = await getDocs(q);
+      let foundVoucher = null;
+
+      querySnapshot.forEach((doc) => {
+        // Cek apakah 6 huruf terakhir ID cocok dengan input user
+        const shortCode = doc.id.split('-').pop()?.toUpperCase();
+        if (shortCode === voucherCode.trim().toUpperCase() || doc.id === voucherCode.trim()) {
+          foundVoucher = { id: doc.id, ...doc.data() };
+        }
+      });
+
+      if (!foundVoucher) {
+        throw new Error("Invalid or expired voucher code.");
+      }
+
+      setAppliedVoucher(foundVoucher);
+      setVoucherCode('');
+    } catch (error: any) {
+      setVoucherError(error.message);
+    } finally {
+      setIsVerifyingVoucher(false);
+    }
+  };
+
+  const removeVoucher = () => {
+    setAppliedVoucher(null);
+  };
 
   // Kalkulasi Umur
   const calculateAge = (dob: string) => {
@@ -78,9 +225,7 @@ function CheckoutContent() {
     const today = new Date();
     let age = today.getFullYear() - birthDate.getFullYear();
     const m = today.getMonth() - birthDate.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-    }
+    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
     return age;
   };
 
@@ -89,9 +234,7 @@ function CheckoutContent() {
       prev.map(p => {
         if (p.id === id) {
           const updated = { ...p, [field]: value };
-          if (field === 'dateOfBirth') {
-             updated.age = calculateAge(value as string);
-          }
+          if (field === 'dateOfBirth') updated.age = calculateAge(value as string);
           return updated;
         }
         return p;
@@ -99,7 +242,6 @@ function CheckoutContent() {
     );
   };
 
-  // Upload ke Cloudinary
   const handleFileUpload = async (id: number, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -118,9 +260,7 @@ function CheckoutContent() {
       });
 
       const data = await response.json();
-      
       if (!response.ok) throw new Error(data.error?.message || 'Upload failed');
-
       handlePassengerChange(id, 'passportFileUrl', data.secure_url);
     } catch (err: any) {
       setErrorMessage(`Failed to upload passport: ${err.message}`);
@@ -142,7 +282,6 @@ function CheckoutContent() {
   const handleProceedToPayment = () => {
     setErrorMessage('');
     
-    // Cek apakah ada yang masih loading upload
     if (Object.values(uploadingState).some(state => state === true)) {
       setErrorMessage('Please wait for all passports to finish uploading.');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -166,13 +305,17 @@ function CheckoutContent() {
       const payload = {
         booking: { 
           date: selectedDate, 
-          cabin: cabinType, 
+          cart: initialCart, 
+          cabin: Object.keys(initialCart).join(', '), 
           pax: paxCount, 
-          total: totalPrice,
-          bookingSource: "B2C_WEB" // Identifikasi B2C vs B2B Agent di masa depan
+          total: finalPrice, // Menggunakan harga yang sudah didiskon
+          basePrice: basePrice,
+          discountAmount: discountAmount,
+          voucherId: appliedVoucher?.id || null,
+          bookingSource: currentUser ? "B2C_MEMBER" : "B2C_GUEST"
         },
         contact: { email, phone, pickupArea, pickupLocation },
-        passengers
+        passengers 
       };
 
       const response = await fetch('/api/checkout/initiate', {
@@ -182,13 +325,18 @@ function CheckoutContent() {
       });
 
       const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Failed to initiate booking');
 
-      if (!response.ok) {
-        throw new Error(result.error || 'Failed to initiate booking');
+      // Jika pakai voucher, tandai voucher tersebut sebagai 'USED'
+      if (appliedVoucher?.id) {
+        await updateDoc(doc(db, 'user_rewards', appliedVoucher.id), {
+          status: 'USED',
+          usedOnOrderId: result.orderId,
+          usedAt: new Date().toISOString()
+        });
       }
 
       router.push(`/payment?order_id=${result.orderId}`);
-      
     } catch (error: any) {
       console.error(error);
       setErrorMessage(error.message);
@@ -199,150 +347,176 @@ function CheckoutContent() {
 
   const formatDateUI = (dateString: string) => {
     if (!dateString) return "";
-    return new Date(dateString).toLocaleDateString('en-US', { 
-      weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' 
-    });
+    return new Date(dateString).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  };
+
+  const getSubtotal = (cabinName: string, count: number) => {
+    const matchedCabin = cabinDetails.find((c: any) => c.name === cabinName);
+    let priceNum = 0;
+    if (matchedCabin && matchedCabin.price) {
+      priceNum = parseInt(matchedCabin.price.replace(/,/g, '').replace('K', '000').replace(/[^0-9]/g, '')) || 0;
+    } else {
+      const nameLower = cabinName.toLowerCase();
+      if (nameLower.includes('sea view')) priceNum = 4600000;
+      else if (nameLower.includes('standard')) priceNum = 4200000;
+      else if (nameLower.includes('down deck')) priceNum = 3800000;
+      else priceNum = 3600000;
+    }
+    return priceNum * count;
   };
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] pb-24">
-      <header className="bg-navy py-6 sticky top-0 z-40 shadow-md">
-        <div className="max-w-4xl mx-auto px-4 flex items-center justify-between">
-          <button onClick={() => router.back()} className="text-white/80 hover:text-white flex items-center gap-2 transition-colors">
-            <ArrowLeft className="w-5 h-5" />
-            <span className="font-semibold">Back</span>
+    <div className="min-h-screen bg-[#F8F9FA] pb-24 font-sans selection:bg-gold selection:text-navy">
+      
+      {/* HEADER & PROGRESS BAR */}
+      <header className="bg-navy pt-6 pb-4 sticky top-0 z-40 shadow-xl">
+        <div className="max-w-6xl mx-auto px-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <button onClick={() => router.back()} className="text-gray-300 hover:text-white flex items-center gap-2 transition-colors w-max group">
+            <ArrowLeft className="w-5 h-5 group-hover:-translate-x-1 transition-transform" />
+            <span className="font-bold text-sm">Modify Cabin</span>
           </button>
-          <span className="text-gold font-bold tracking-widest uppercase">Checkout</span>
-          <div className="w-16" />
+          <div className="flex items-center gap-2 md:gap-4 self-center">
+            <div className="flex items-center gap-2 text-gold">
+              <div className="w-6 h-6 rounded-full bg-gold text-navy flex items-center justify-center font-bold text-xs">1</div>
+              <span className="text-xs font-bold uppercase tracking-wider hidden md:block">Details</span>
+            </div>
+            <div className="w-8 md:w-12 h-px bg-white/20" />
+            <div className="flex items-center gap-2 text-gray-500">
+              <div className="w-6 h-6 rounded-full border border-gray-500 text-gray-500 flex items-center justify-center font-bold text-xs">2</div>
+              <span className="text-xs font-bold uppercase tracking-wider hidden md:block">Payment</span>
+            </div>
+            <div className="w-8 md:w-12 h-px bg-white/20" />
+            <div className="flex items-center gap-2 text-gray-500">
+              <div className="w-6 h-6 rounded-full border border-gray-500 text-gray-500 flex items-center justify-center font-bold text-xs">3</div>
+              <span className="text-xs font-bold uppercase tracking-wider hidden md:block">E-Ticket</span>
+            </div>
+          </div>
+          <div className="hidden md:block w-24" />
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 mt-8">
+      <main className="max-w-6xl mx-auto px-4 mt-8">
         
-        {errorMessage && (
-          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-8 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 font-medium rounded-r-lg">
-            {errorMessage}
-          </motion.div>
-        )}
+        <div className="mb-8">
+          <h1 className="text-3xl md:text-4xl font-extrabold text-navy mb-2">Secure Checkout</h1>
+          <p className="text-gray-500">Please provide the required manifest details for harbor clearance.</p>
+        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <AnimatePresence>
+          {errorMessage && (
+            <motion.div initial={{ opacity: 0, y: -20, height: 0 }} animate={{ opacity: 1, y: 0, height: 'auto' }} exit={{ opacity: 0, y: -20, height: 0 }} className="mb-8 p-5 bg-red-50 border border-red-200 text-red-800 font-bold rounded-2xl flex items-center gap-3 shadow-sm">
+              <ShieldCheck className="w-6 h-6 text-red-500 shrink-0" />
+              {errorMessage}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10">
           
-          <div className="lg:col-span-2 space-y-8">
+          {/* LEFT COLUMN: FORMS */}
+          <div className="lg:col-span-8 space-y-8">
             
             {/* CONTACT & PICKUP */}
-            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100">
-              <h2 className="text-xl font-bold text-navy mb-6 flex items-center gap-2">
-                <Mail className="w-5 h-5 text-gold" /> Contact & Pickup Details
+            <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-white p-8 md:p-10 rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-1.5 h-full bg-gold" />
+              <h2 className="text-2xl font-extrabold text-navy mb-6 flex items-center gap-3 pb-6 border-b border-gray-100">
+                <div className="bg-navy/5 p-2 rounded-xl"><Mail className="w-6 h-6 text-navy" /></div>
+                Contact & Transfer
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Input label="Email Address *" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-                <Input label="WhatsApp / Phone *" type="tel" placeholder="+62..." value={phone} onChange={(e) => setPhone(e.target.value)} required />
-                
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-8">
+                <Input label="Email Address (For E-Ticket) *" type="email" placeholder="name@email.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                <Input label="WhatsApp / Phone *" type="tel" placeholder="+62 812..." value={phone} onChange={(e) => setPhone(e.target.value)} required />
                 <div className="flex flex-col">
-                   <label className="text-sm font-semibold text-gray-500 mb-2">Pickup Area *</label>
-                   <select 
-                      value={pickupArea} 
-                      onChange={(e) => {
-                        setPickupArea(e.target.value);
-                        setPickupLocation(''); // Reset lokasi jika area berubah
-                      }}
-                      className="w-full p-4 bg-white rounded-xl border border-gray-200 focus:border-gold focus:ring-1 focus:ring-gold outline-none"
-                      required
-                   >
-                      <option value="" disabled>Select Area</option>
-                      <option value="Mataram">Mataram</option>
-                      <option value="Senggigi">Senggigi</option>
-                      <option value="Kuta Mandalika">Kuta Mandalika</option>
-                      <option value="Bangsal">Bangsal Harbor</option>
-                   </select>
+                   <label className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wider text-[10px]">Pickup Area *</label>
+                   <div className="relative">
+                     <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                     <select value={pickupArea} onChange={(e) => { setPickupArea(e.target.value); setPickupLocation(''); }} className="w-full pl-12 pr-4 py-4 bg-gray-50 hover:bg-white rounded-xl border border-gray-200 focus:border-gold focus:ring-1 focus:ring-gold outline-none font-bold text-navy appearance-none transition-colors cursor-pointer" required>
+                        <option value="" disabled>Select Coverage Area</option>
+                        <option value="Mataram">Mataram City</option>
+                        <option value="Senggigi">Senggigi Area</option>
+                        <option value="Kuta Mandalika">Kuta Mandalika</option>
+                        <option value="Bangsal">Bangsal Harbor</option>
+                     </select>
+                   </div>
                 </div>
-
                 <div className="flex flex-col">
-                  <Input 
-                    label="Hotel Name / Detail Location *" 
-                    placeholder={pickupArea ? `Where in ${pickupArea}?` : "Select area first"}
-                    value={pickupLocation}
-                    onChange={(e) => setPickupLocation(e.target.value)}
-                    disabled={!pickupArea}
-                    required
-                  />
+                  <Input label="Hotel Name / Detail Address *" placeholder={pickupArea ? `Where exactly in ${pickupArea}?` : "Select area first"} value={pickupLocation} onChange={(e) => setPickupLocation(e.target.value)} disabled={!pickupArea} required />
                 </div>
               </div>
             </motion.section>
 
             {/* PASSENGER MANIFEST */}
             <motion.section initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
-              <h2 className="text-xl font-bold text-navy mb-4 flex items-center gap-2">
-                <User className="w-5 h-5 text-gold" /> Passenger Manifest
-              </h2>
               
-              <div className="space-y-6">
+              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
+                <h2 className="text-2xl font-extrabold text-navy flex items-center gap-3">
+                  <div className="bg-navy/5 p-2 rounded-xl"><User className="w-6 h-6 text-navy" /></div>
+                  Guest Manifest
+                </h2>
+              </div>
+              
+              <div className="space-y-8">
                 {passengers.map((p, idx) => (
-                  <div key={p.id} className="bg-white p-6 md:p-8 rounded-2xl shadow-sm border border-gray-100 relative overflow-hidden">
-                    <div className="absolute top-0 left-0 bg-gold text-navy font-bold px-4 py-1 rounded-br-xl text-sm">
-                      Passenger {p.id} {idx === 0 && "(Lead)"}
+                  <div key={p.id} className="bg-white rounded-3xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-gray-100 overflow-hidden relative">
+                    <div className={`px-6 md:px-8 py-5 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${idx === 0 ? 'bg-navy border-navy' : 'bg-gray-50 border-gray-100'}`}>
+                      <h3 className={`text-lg font-extrabold flex items-center gap-2 ${idx === 0 ? 'text-white' : 'text-navy'}`}>
+                        Guest {p.id}
+                        {idx === 0 && <span className="bg-gold text-navy text-[10px] uppercase tracking-widest px-3 py-1 rounded-full ml-2 shadow-sm">Lead Booker</span>}
+                      </h3>
+                      
+                      <div className="flex items-center gap-2 bg-white/5 px-2 py-1 rounded-lg">
+                        <span className={`text-[10px] font-bold uppercase tracking-widest ${idx === 0 ? 'text-gray-300' : 'text-gray-400'}`}>Assigned Cabin:</span>
+                        <div className={`text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-md border flex items-center gap-1.5 shadow-sm ${idx === 0 ? 'border-white/20 text-white bg-white/10' : 'border-gold/30 text-navy bg-gold/5'}`}>
+                          <Lock className={`w-3 h-3 ${idx === 0 ? 'text-gold' : 'text-gold'}`} />
+                          {p.cabinName}
+                        </div>
+                      </div>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-                      {/* Baris 1 */}
-                      <Input label="Full Name (as per Passport) *" value={p.fullName} onChange={(e) => handlePassengerChange(p.id, 'fullName', e.target.value)} required />
-                      
+                    <div className="p-6 md:p-8 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-8">
+                      <Input label="Full Name (As in Passport) *" value={p.fullName} onChange={(e) => handlePassengerChange(p.id, 'fullName', e.target.value)} placeholder="John Doe" required />
                       <div className="flex flex-col">
-                        <label className="text-sm font-semibold text-gray-500 mb-2">Gender *</label>
-                        <select 
-                          value={p.gender} 
-                          onChange={(e) => handlePassengerChange(p.id, 'gender', e.target.value)}
-                          className="w-full p-4 bg-white rounded-xl border border-gray-200 focus:border-gold outline-none" required
-                        >
-                          <option value="" disabled>Select Gender</option>
+                        <label className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wider text-[10px]">Gender *</label>
+                        <select value={p.gender} onChange={(e) => handlePassengerChange(p.id, 'gender', e.target.value)} className="w-full p-4 bg-gray-50 hover:bg-white rounded-xl border border-gray-200 focus:border-gold outline-none font-bold text-navy transition-colors cursor-pointer" required>
+                          <option value="" disabled>Select</option>
                           <option value="Male">Male</option>
                           <option value="Female">Female</option>
                         </select>
                       </div>
 
-                      {/* Baris 2 */}
-                      <Input label="Place of Birth *" value={p.placeOfBirth} onChange={(e) => handlePassengerChange(p.id, 'placeOfBirth', e.target.value)} required />
+                      <Input label="Place of Birth *" value={p.placeOfBirth} onChange={(e) => handlePassengerChange(p.id, 'placeOfBirth', e.target.value)} placeholder="City, Country" required />
                       <div className="flex gap-4">
                         <div className="w-2/3">
                           <Input label="Date of Birth *" type="date" value={p.dateOfBirth} onChange={(e) => handlePassengerChange(p.id, 'dateOfBirth', e.target.value)} required />
                         </div>
                         <div className="w-1/3">
-                          <Input label="Age" type="number" value={p.age} readOnly className="bg-gray-50 text-gray-500 cursor-not-allowed" />
+                          <Input label="Age" type="number" value={p.age} readOnly className="bg-gray-100 text-gray-400 font-bold cursor-not-allowed border-none" />
                         </div>
                       </div>
 
-                      {/* Baris 3 */}
-                      <Input label="Nationality *" value={p.nationality} onChange={(e) => handlePassengerChange(p.id, 'nationality', e.target.value)} required />
-                      <Input label="Dietary Requirements" placeholder="Vegetarian, Halal, etc. (Optional)" value={p.dietaryRequirements} onChange={(e) => handlePassengerChange(p.id, 'dietaryRequirements', e.target.value)} />
+                      <Input label="Nationality *" value={p.nationality} onChange={(e) => handlePassengerChange(p.id, 'nationality', e.target.value)} placeholder="e.g. British" required />
+                      <div className="flex flex-col">
+                        <label className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wider text-[10px]">Dietary / Allergies</label>
+                        <select value={p.dietaryRequirements} onChange={(e) => handlePassengerChange(p.id, 'dietaryRequirements', e.target.value)} className="w-full p-4 bg-gray-50 hover:bg-white rounded-xl border border-gray-200 focus:border-gold outline-none font-bold text-navy transition-colors cursor-pointer">
+                          <option value="None">None</option>
+                          <option value="Vegetarian">Vegetarian</option>
+                          <option value="Vegan">Vegan</option>
+                          <option value="Halal">Halal</option>
+                          <option value="Gluten-Free">Gluten-Free</option>
+                        </select>
+                      </div>
 
-                      {/* Baris 4: Passport Data & Upload */}
-                      <Input label="Passport Number *" value={p.passportNumber} onChange={(e) => handlePassengerChange(p.id, 'passportNumber', e.target.value)} required />
+                      <Input label="Passport / ID Number *" value={p.passportNumber} onChange={(e) => handlePassengerChange(p.id, 'passportNumber', e.target.value)} placeholder="A1234567" className="uppercase font-mono tracking-wider" required />
                       
                       <div className="flex flex-col justify-end">
-                        <label className="text-sm font-semibold text-gray-500 mb-2">Upload Passport Photo/Scan *</label>
-                        <div className="relative">
-                          <input 
-                            type="file" 
-                            accept="image/*,.pdf"
-                            onChange={(e) => handleFileUpload(p.id, e)}
-                            className="hidden" 
-                            id={`passport-upload-${p.id}`}
-                          />
-                          <label 
-                            htmlFor={`passport-upload-${p.id}`}
-                            className={`flex items-center justify-center gap-2 p-4 rounded-xl border-2 border-dashed cursor-pointer transition-colors ${p.passportFileUrl ? 'border-green-500 bg-green-50 text-green-700' : 'border-gray-300 hover:border-gold bg-gray-50 text-gray-600'}`}
-                          >
-                            {uploadingState[p.id] ? (
-                              <span className="animate-pulse">Uploading...</span>
-                            ) : p.passportFileUrl ? (
-                              <><Check className="w-5 h-5" /> Passport Uploaded</>
-                            ) : (
-                              <><UploadCloud className="w-5 h-5" /> Choose File</>
-                            )}
+                        <label className="text-sm font-semibold text-gray-500 mb-2 uppercase tracking-wider text-[10px]">Upload Document (Required) *</label>
+                        <div className="relative h-[58px]"> 
+                          <input type="file" accept="image/*,.pdf" onChange={(e) => handleFileUpload(p.id, e)} className="hidden" id={`passport-upload-${p.id}`} />
+                          <label htmlFor={`passport-upload-${p.id}`} className={`flex items-center justify-center gap-2 h-full rounded-xl border-2 border-dashed cursor-pointer transition-all ${uploadingState[p.id] ? 'border-gold bg-gold/5 text-gold' : p.passportFileUrl ? 'border-green-500 bg-green-50 text-green-700 shadow-inner' : 'border-gray-300 hover:border-gold bg-gray-50 hover:bg-gold/5 text-navy font-bold'}`}>
+                            {uploadingState[p.id] ? (<><Loader2 className="w-5 h-5 animate-spin" /> Uploading securely...</>) : p.passportFileUrl ? (<><CheckCircle2 className="w-5 h-5" /> Document Verified</>) : (<><UploadCloud className="w-5 h-5 text-gray-400" /> Click to Browse</>)}
                           </label>
                         </div>
                       </div>
-
                     </div>
                   </div>
                 ))}
@@ -350,44 +524,134 @@ function CheckoutContent() {
             </motion.section>
           </div>
 
-          {/* ORDER SUMMARY */}
-          <div className="lg:col-span-1">
-            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="bg-navy p-6 rounded-2xl shadow-xl text-white sticky top-28">
-              <h3 className="text-lg font-bold text-gold mb-6 border-b border-white/10 pb-4">Order Summary</h3>
+          {/* RIGHT COLUMN: ORDER SUMMARY WIDGET */}
+          <div className="lg:col-span-4 relative">
+            <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="bg-navy p-8 rounded-3xl shadow-2xl text-white lg:sticky lg:top-32 border border-navy/20">
+              <div className="absolute top-1/2 -left-3 w-6 h-6 bg-[#F8F9FA] rounded-full -translate-y-1/2 shadow-inner" />
+              <div className="absolute top-1/2 -right-3 w-6 h-6 bg-[#F8F9FA] rounded-full -translate-y-1/2 shadow-inner" />
               
-              <div className="space-y-4 mb-6">
+              <h3 className="text-xl font-extrabold text-gold mb-6 border-b border-white/10 pb-6 flex items-center justify-between">
+                Order Summary
+                <FileText className="w-5 h-5 text-white/50" />
+              </h3>
+              
+              <div className="space-y-5 mb-8">
                 <div className="flex justify-between items-start">
-                  <div className="text-gray-300 text-sm"><CalendarIcon className="w-4 h-4 mb-1 inline mr-1" /> Departure</div>
-                  <div className="font-semibold text-right max-w-[150px]">{formatDateUI(selectedDate)}</div>
+                  <div className="text-gray-400 text-sm"><CalendarIcon className="w-4 h-4 mb-1 inline mr-2 text-white/50" /> Departure</div>
+                  <div className="font-bold text-right text-white bg-white/10 px-3 py-1 rounded-lg">
+                    {formatDateUI(selectedDate)}
+                  </div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <div className="text-gray-300 text-sm"><MapPin className="w-4 h-4 mb-1 inline mr-1" /> Route</div>
-                  <div className="font-semibold text-right">Lombok ➔ Komodo</div>
+                <div className="flex justify-between items-center pb-4 border-b border-white/5">
+                  <div className="text-gray-400 text-sm"><MapPin className="w-4 h-4 mb-1 inline mr-2 text-white/50" /> Route</div>
+                  <div className="font-bold text-right">Lombok ➔ Komodo</div>
                 </div>
-                <div className="flex justify-between items-center">
-                  <div className="text-gray-300 text-sm">Class</div>
-                  <div className="font-semibold text-gold">{cabinType}</div>
-                </div>
-                <div className="flex justify-between items-center">
-                  <div className="text-gray-300 text-sm">Guests</div>
-                  <div className="font-semibold">{paxCount} Person(s)</div>
+
+                {/* DYNAMIC CART LIST */}
+                <div className="pt-2">
+                  <div className="flex items-center gap-2 text-gray-400 text-sm mb-4">
+                    <BedDouble className="w-4 h-4" /> Selected Cabins
+                  </div>
+                  <div className="space-y-3">
+                    {Object.entries(initialCart).map(([cabinName, count]) => (
+                      <div key={cabinName} className="flex justify-between items-start">
+                        <div className="pr-2">
+                          <p className="text-sm font-bold text-white">{count}x Guest{count > 1 ? 's' : ''}</p>
+                          <p className="text-[10px] text-gray-400 leading-tight mt-0.5">{cabinName}</p>
+                        </div>
+                        <div className="text-sm font-bold text-gold shrink-0">
+                          {isFetchingPrice ? "..." : getSubtotal(cabinName, count).toLocaleString('id-ID')}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
-              <div className="border-t border-white/10 pt-4 mb-8">
-                <div className="flex justify-between items-end">
-                  <div className="text-gray-300">Total Price</div>
-                  <div className="text-3xl font-bold text-gold">${totalPrice}</div>
-                </div>
-                <p className="text-xs text-gray-400 mt-2 text-right">Includes all taxes & national park fees.</p>
+              {/* ===================== VOUCHER SYSTEM ===================== */}
+              <div className="border-t border-dashed border-white/20 pt-6 mb-6">
+                <h4 className="text-xs font-bold uppercase tracking-widest text-gray-400 mb-3 flex items-center gap-2">
+                  <Ticket className="w-4 h-4" /> Promo Code
+                </h4>
+                
+                <AnimatePresence mode="wait">
+                  {appliedVoucher ? (
+                    <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="bg-green-500/10 border border-green-500/20 p-3.5 rounded-xl flex items-center justify-between">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="w-4 h-4 text-green-400" />
+                          <span className="font-bold text-green-400 text-sm">{appliedVoucher.rewardName}</span>
+                        </div>
+                        <p className="text-[10px] text-green-400/70 mt-0.5 uppercase tracking-widest ml-6">Code Applied Successfully</p>
+                      </div>
+                      <button onClick={removeVoucher} className="p-2 bg-green-500/20 rounded-lg hover:bg-green-500/40 transition-colors">
+                        <XCircle className="w-4 h-4 text-green-300" />
+                      </button>
+                    </motion.div>
+                  ) : (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={voucherCode} 
+                          onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
+                          placeholder="e.g. ABCD56"
+                          disabled={!currentUser}
+                          className="flex-1 bg-white/5 border border-white/20 rounded-xl px-4 py-3 text-sm font-bold tracking-widest text-white placeholder:text-gray-500 focus:outline-none focus:border-gold transition-colors disabled:opacity-50 disabled:cursor-not-allowed uppercase"
+                        />
+                        <button 
+                          onClick={handleApplyVoucher}
+                          disabled={!voucherCode || isVerifyingVoucher || !currentUser}
+                          className="bg-gold hover:bg-[#b8972e] text-navy px-4 rounded-xl font-bold text-sm transition-colors disabled:opacity-50 flex items-center justify-center min-w-[80px]"
+                        >
+                          {isVerifyingVoucher ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Apply'}
+                        </button>
+                      </div>
+                      {!currentUser && (
+                        <p className="text-[10px] text-gray-500 mt-2 flex items-center gap-1">
+                          <Info className="w-3 h-3" /> Sign in to use your VVIP vouchers.
+                        </p>
+                      )}
+                      {voucherError && <p className="text-[10px] text-red-400 mt-2 font-bold">{voucherError}</p>}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
-              <Button onClick={handleProceedToPayment} variant="secondary" className="w-full" isLoading={isLoading}>
-                Proceed to Payment
+              {/* === TOTAL PAYMENT === */}
+              <div className="border-t-2 border-dashed border-white/20 pt-6 mb-8 relative">
+                <div className="flex justify-between items-end mb-2">
+                  <div className="text-gray-400 text-sm font-bold uppercase tracking-widest">Total Payment</div>
+                  <div className="text-xs font-bold text-navy bg-gold px-2 py-0.5 rounded-md">IDR</div>
+                </div>
+                
+                {isFetchingPrice ? (
+                  <div className="h-10 bg-white/10 animate-pulse rounded-lg w-full mt-2" />
+                ) : (
+                  <div>
+                    {appliedVoucher && (
+                       <div className="flex justify-between items-center text-sm font-bold text-gray-400 line-through mb-1">
+                         <span>Original Price</span>
+                         <span>{basePrice.toLocaleString('id-ID')}</span>
+                       </div>
+                    )}
+                    <div className="text-4xl font-extrabold text-white tracking-tighter text-right">
+                      {finalPrice.toLocaleString('id-ID')}
+                    </div>
+                  </div>
+                )}
+                
+                <p className="text-[10px] text-gray-400 mt-3 text-right leading-relaxed">
+                  Includes all harbor taxes, national park fees, and exclusive member insurance.
+                </p>
+              </div>
+
+              <Button onClick={handleProceedToPayment} variant="secondary" className="w-full py-4 text-base rounded-xl hover:-translate-y-1 transition-all" isLoading={isLoading} disabled={isFetchingPrice}>
+                Proceed to Payment <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
 
-              <div className="mt-6 flex items-center justify-center gap-2 text-xs text-gray-400">
-                <ShieldCheck className="w-4 h-4" /> Secure SSL Encrypted Checkout
+              <div className="mt-6 flex items-center justify-center gap-2 text-[10px] text-gray-400 font-bold uppercase tracking-widest">
+                <ShieldCheck className="w-4 h-4 text-green-400" /> Secure Midtrans Checkout
               </div>
             </motion.div>
           </div>
@@ -395,18 +659,29 @@ function CheckoutContent() {
         </div>
       </main>
 
-      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Confirm Your Details">
-        <div className="space-y-4">
-          <p className="text-gray-600">Please ensure all passenger names match their passports exactly. We will send the e-Ticket to <strong>{email}</strong>.</p>
-          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 text-sm">
-            <div className="flex items-center gap-2 text-navy font-semibold mb-2">
-              <CheckCircle2 className="w-4 h-4 text-green-500" /> 1x Free Reschedule Included
+      <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Confirm Your Voyage Details">
+        <div className="space-y-6">
+          <p className="text-gray-600 text-sm leading-relaxed">
+            Please ensure all passenger names match their passports exactly. We will send your official boarding pass to <strong className="text-navy">{email}</strong>.
+          </p>
+          
+          <div className="bg-[#fdfaf5] p-5 rounded-2xl border border-gold/20 text-sm shadow-sm relative overflow-hidden">
+            <div className="absolute right-0 bottom-0 w-20 h-20 bg-gold/10 rounded-tl-full" />
+            <div className="flex items-center gap-3 text-navy font-extrabold mb-2 relative z-10">
+              <CheckCircle2 className="w-5 h-5 text-green-500" /> 1x Free Reschedule Guarantee
             </div>
-            <p className="text-gray-500">You are eligible to reschedule this trip to the following week if flight delays occur.</p>
+            <p className="text-gray-600 leading-relaxed relative z-10">
+              As a premium member benefit, you are eligible to reschedule this trip to the following week if sudden flight delays occur.
+            </p>
           </div>
-          <div className="pt-4 flex gap-4">
-            <Button variant="outline" onClick={() => setIsModalOpen(false)} className="w-full">Edit Details</Button>
-            <Button onClick={confirmAndPay} isLoading={isLoading} className="w-full">Pay ${totalPrice}</Button>
+
+          <div className="pt-4 flex flex-col md:flex-row gap-4">
+            <Button variant="outline" onClick={() => setIsModalOpen(false)} className="w-full md:w-1/3">
+              Review Details
+            </Button>
+            <Button onClick={confirmAndPay} isLoading={isLoading} className="w-full md:w-2/3 bg-navy hover:bg-[#122643] text-white">
+              Confirm & Pay IDR {finalPrice.toLocaleString('id-ID')}
+            </Button>
           </div>
         </div>
       </Modal>
