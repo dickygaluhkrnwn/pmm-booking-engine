@@ -5,16 +5,16 @@ import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Award, Calendar, MapPin, Users, Ticket, 
-  ChevronRight, Loader2, Clock, ChevronDown, User,
-  Compass, Shield, Plus
+  ChevronRight, Loader2, ChevronDown, User,
+  Compass, Shield, Plus, Anchor, PlaneTakeoff, 
+  Wine, ShoppingBag, ConciergeBell, History, 
+  ArrowRight, ExternalLink
 } from 'lucide-react';
 import { auth, db } from '@/lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { DashboardHeader } from '@/components/layout/DashboardHeader';
 import Image from 'next/image';
-
-// --- IMPORT KOMPONEN REVIEW MANAGER BARU KITA ---
 import { ReviewManager } from '@/components/dashboard/ReviewManager';
 
 interface Booking {
@@ -35,9 +35,10 @@ export default function DashboardPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [greeting, setGreeting] = useState("");
   
+  // Arsitektur Tab Baru
+  const [activeTab, setActiveTab] = useState<'upcoming' | 'past' | 'services'>('upcoming');
   const [expandedBookingId, setExpandedBookingId] = useState<string | null>(null);
 
-  // Menentukan ucapan sapaan berdasarkan jam
   useEffect(() => {
     const hour = new Date().getHours();
     if (hour < 12) setGreeting("Good morning");
@@ -71,7 +72,8 @@ export default function DashboardPage() {
           fetchedBookings.push({ id: doc.id, ...doc.data() } as Booking);
         });
 
-        fetchedBookings.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        // Urutkan tiket: yang terdekat/terbaru di atas
+        fetchedBookings.sort((a, b) => new Date(b.dateOfDeparture).getTime() - new Date(a.dateOfDeparture).getTime());
         setBookings(fetchedBookings);
 
       } catch (error) {
@@ -84,15 +86,18 @@ export default function DashboardPage() {
     return () => unsubscribe();
   }, [router]);
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return "-";
-    return new Date(dateString).toLocaleDateString('en-US', { 
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' 
-    });
-  };
+  // Pemisah Tiket Masa Depan & Masa Lalu
+  const upcomingBookings = bookings.filter(b => new Date(b.dateOfDeparture) >= new Date() || b.status !== 'PAID');
+  const pastBookings = bookings.filter(b => new Date(b.dateOfDeparture) < new Date() && b.status === 'PAID');
 
-  const isUpcoming = (dateString: string, status: string) => {
-    return status === 'PAID' && new Date(dateString) > new Date();
+  const getDayAndMonth = (dateString: string) => {
+    if (!dateString) return { day: '-', month: '-' };
+    const d = new Date(dateString);
+    return {
+      day: d.toLocaleDateString('en-US', { day: '2-digit' }),
+      month: d.toLocaleDateString('en-US', { month: 'short' }),
+      year: d.toLocaleDateString('en-US', { year: 'numeric' })
+    };
   };
 
   const toggleExpand = (id: string) => {
@@ -103,291 +108,278 @@ export default function DashboardPage() {
     return (
       <div className="min-h-screen bg-[#F8F9FA] flex flex-col items-center justify-center">
         <Loader2 className="w-10 h-10 text-gold animate-spin mb-4" />
-        <h2 className="text-lg font-bold text-navy animate-pulse">Loading your vault...</h2>
+        <h2 className="text-lg font-bold text-navy animate-pulse">Decrypting your vault...</h2>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA] font-sans pb-20 selection:bg-gold selection:text-navy">
+    <div className="min-h-screen bg-[#F8F9FA] font-sans pb-24 selection:bg-gold selection:text-navy pt-24">
       <DashboardHeader />
 
-      <main className="max-w-6xl mx-auto px-4 pt-28 grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <main className="max-w-7xl mx-auto px-4 md:px-8 mt-4">
         
-        {/* KOLOM KIRI: Profil & Poin */}
-        <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-28 h-max">
-          <motion.div 
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="bg-navy rounded-[2.5rem] p-8 shadow-[0_20px_50px_rgb(0,0,0,0.06)] relative overflow-hidden text-white border border-navy/20"
-          >
-            <div className="absolute top-0 right-0 w-48 h-48 bg-gold/15 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none" />
-            <div className="absolute bottom-0 left-0 w-32 h-32 bg-white/5 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2 pointer-events-none" />
-            
-            <div className="relative z-10">
-              <p className="text-gold text-xs font-bold tracking-widest uppercase mb-6 flex items-center gap-2">
-                <Shield className="w-4 h-4" /> PMM Reserve Member
-              </p>
-              
-              <div className="flex items-center gap-4 mb-8">
-                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-gold to-[#b8972e] p-[2px] shadow-lg">
-                  <div className="w-full h-full rounded-full bg-navy flex items-center justify-center overflow-hidden">
-                    {userProfile?.photoUrl ? (
-                      <Image src={userProfile.photoUrl} alt="Avatar" width={64} height={64} className="w-full h-full object-cover" />
-                    ) : (
-                      <span className="text-2xl font-bold text-gold">
-                        {userProfile?.fullName ? userProfile.fullName.charAt(0).toUpperCase() : <User className="w-6 h-6 text-gold" />}
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-gray-400 text-xs">{greeting},</p>
-                  <h2 className="text-xl font-bold text-white truncate max-w-[180px]">
-                    {userProfile?.fullName?.split(' ')[0] || auth.currentUser?.email?.split('@')[0]}
-                  </h2>
-                </div>
-              </div>
-
-              <div className="bg-white/10 border border-white/20 rounded-2xl p-5 backdrop-blur-md">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2 text-gold">
-                    <Award className="w-5 h-5" />
-                    <span className="font-bold text-sm uppercase tracking-wider">Gold Points</span>
-                  </div>
-                </div>
-                <div className="text-4xl font-extrabold text-white tracking-tight">
-                  {userProfile?.pointsBalance || 0}
-                </div>
-                <p className="text-xs text-gray-400 mt-2 leading-relaxed">
-                  Use points to unlock rewards, merchandise, and exclusive cabin upgrades.
-                </p>
+        {/* ======================================================== */}
+        {/* COMPACT & ELEGANT PROFILE BANNER (HORIZONTAL)            */}
+        {/* ======================================================== */}
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+          className="bg-navy rounded-[2rem] p-6 md:p-8 shadow-2xl relative overflow-hidden text-white border border-navy/20 mb-8 flex flex-col md:flex-row items-center justify-between gap-6"
+        >
+          <div className="absolute right-0 top-0 w-[500px] h-[500px] bg-gold/10 rounded-full blur-[120px] pointer-events-none" />
+          
+          <div className="flex items-center gap-5 w-full md:w-auto relative z-10">
+            <div className="w-16 h-16 md:w-20 md:h-20 rounded-full bg-gradient-to-br from-gold to-[#b8972e] p-[2px] shadow-lg shrink-0">
+              <div className="w-full h-full rounded-full bg-navy flex items-center justify-center overflow-hidden">
+                {userProfile?.photoUrl ? (
+                  <Image src={userProfile.photoUrl} alt="Avatar" width={80} height={80} className="w-full h-full object-cover" />
+                ) : (
+                  <span className="text-3xl font-bold text-gold">{userProfile?.fullName ? userProfile.fullName.charAt(0).toUpperCase() : <User className="w-8 h-8 text-gold" />}</span>
+                )}
               </div>
             </div>
-          </motion.div>
+            <div>
+              <p className="text-gold text-[10px] font-extrabold tracking-widest uppercase mb-1 flex items-center gap-1.5">
+                <Shield className="w-3 h-3" /> PMM Reserve Member
+              </p>
+              <h2 className="text-2xl md:text-3xl font-extrabold text-white truncate max-w-[250px] md:max-w-[400px]">
+                {greeting}, {userProfile?.fullName?.split(' ')[0] || 'Explorer'}
+              </h2>
+            </div>
+          </div>
 
-          <motion.div 
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.1 }}
-            className="bg-white rounded-3xl p-6 border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]"
+          <div className="flex gap-4 w-full md:w-auto relative z-10">
+            <div className="bg-white/10 border border-white/20 rounded-2xl p-4 backdrop-blur-md flex items-center gap-4 flex-1 md:w-48">
+              <div className="bg-gold/20 p-2.5 rounded-full"><Award className="w-5 h-5 text-gold" /></div>
+              <div>
+                <p className="text-[9px] font-bold uppercase tracking-widest text-gray-400">Gold Points</p>
+                <p className="text-2xl font-extrabold text-white leading-none mt-0.5">{userProfile?.pointsBalance || 0}</p>
+              </div>
+            </div>
+            <button onClick={() => router.push('/')} className="hidden md:flex bg-gold hover:bg-[#b8972e] text-navy px-6 py-4 rounded-2xl font-extrabold shadow-lg shadow-gold/20 transition-all items-center gap-2">
+              <Plus className="w-5 h-5" /> Book Voyage
+            </button>
+          </div>
+        </motion.div>
+
+        {/* ======================================================== */}
+        {/* MODERN TAB NAVIGATION                                    */}
+        {/* ======================================================== */}
+        <div className="flex overflow-x-auto no-scrollbar gap-2 mb-8 bg-white p-2 rounded-2xl shadow-sm border border-gray-100 w-full lg:w-max">
+          <button 
+            onClick={() => setActiveTab('upcoming')} 
+            className={`flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${activeTab === 'upcoming' ? 'bg-navy text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
           >
-            <h3 className="font-extrabold text-navy mb-4">Quick Links</h3>
-            <ul className="space-y-2">
-              <li>
-                <button onClick={() => router.push('/dashboard/profile')} className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-gray-50 transition-all text-sm font-bold text-navy border border-transparent hover:border-gray-100 group">
-                  <span className="flex items-center gap-3">
-                    <div className="bg-navy/5 p-2 rounded-xl group-hover:bg-gold/10 transition-colors"><User className="w-4 h-4 text-navy group-hover:text-gold" /></div>
-                    Member Identity Card
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gold group-hover:translate-x-1 transition-all" />
-                </button>
-              </li>
-              <li>
-                <button onClick={() => router.push('/rewards')} className="w-full flex items-center justify-between p-4 rounded-2xl hover:bg-gray-50 transition-all text-sm font-bold text-navy border border-transparent hover:border-gray-100 group">
-                  <span className="flex items-center gap-3">
-                    <div className="bg-navy/5 p-2 rounded-xl group-hover:bg-gold/10 transition-colors"><Award className="w-4 h-4 text-navy group-hover:text-gold" /></div>
-                    Rewards Catalog
-                  </span>
-                  <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gold group-hover:translate-x-1 transition-all" />
-                </button>
-              </li>
-            </ul>
-          </motion.div>
+            <Compass className="w-4 h-4" /> Upcoming Expeditions <span className="bg-white/20 px-2 py-0.5 rounded-md text-[10px] ml-1">{upcomingBookings.length}</span>
+          </button>
+          <button 
+            onClick={() => setActiveTab('past')} 
+            className={`flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${activeTab === 'past' ? 'bg-navy text-white shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
+          >
+            <History className="w-4 h-4" /> Past Voyages
+          </button>
+          <button 
+            onClick={() => setActiveTab('services')} 
+            className={`flex items-center gap-2 px-5 py-3 rounded-xl font-bold text-sm transition-all whitespace-nowrap ${activeTab === 'services' ? 'bg-gold text-navy shadow-md' : 'text-gray-500 hover:bg-gray-50'}`}
+          >
+            <ConciergeBell className="w-4 h-4" /> VVIP Services
+          </button>
         </div>
 
-        {/* KOLOM KANAN: Daftar Pesanan */}
-        <div className="lg:col-span-8">
-          <motion.div 
-             initial={{ opacity: 0, y: 20 }}
-             animate={{ opacity: 1, y: 0 }}
-             transition={{ delay: 0.2 }}
-             className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6"
-          >
-            <div>
-              <h2 className="text-3xl font-extrabold text-navy">My Expeditions</h2>
-              <p className="text-gray-500 text-sm mt-1">Manage your voyages and share your daily journal.</p>
-            </div>
-            
-            <button 
-              onClick={() => router.push('/')}
-              className="hidden sm:flex items-center gap-2 bg-gold hover:bg-[#b8972e] text-navy px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-gold/20 transition-all hover:-translate-y-0.5"
-            >
-              <Plus className="w-4 h-4" /> New Voyage
-            </button>
-          </motion.div>
+        {/* ======================================================== */}
+        {/* TAB CONTENT AREA                                         */}
+        {/* ======================================================== */}
+        <AnimatePresence mode="wait">
+          
+          {/* --- TAB: UPCOMING & PAST BOOKINGS (COMPACT LIST VIEW) --- */}
+          {(activeTab === 'upcoming' || activeTab === 'past') && (
+            <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+              
+              {/* Data Kosong */}
+              {((activeTab === 'upcoming' && upcomingBookings.length === 0) || (activeTab === 'past' && pastBookings.length === 0)) && (
+                <div className="bg-white rounded-[2rem] p-12 text-center border border-gray-100 shadow-sm">
+                  <div className="w-20 h-20 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4 border border-gray-100">
+                    <Anchor className="w-8 h-8 text-gray-300" />
+                  </div>
+                  <h3 className="text-xl font-extrabold text-navy mb-2">No {activeTab} voyages</h3>
+                  <p className="text-gray-500 text-sm mb-6 max-w-sm mx-auto">You do not have any {activeTab} itineraries at the moment. Plan your next escape with us.</p>
+                  {activeTab === 'upcoming' && (
+                    <button onClick={() => router.push('/')} className="bg-navy hover:bg-[#122643] text-white px-8 py-3.5 rounded-xl font-bold transition-all shadow-lg">
+                      Explore Destinations
+                    </button>
+                  )}
+                </div>
+              )}
 
-          {bookings.length === 0 ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white rounded-3xl p-12 text-center border border-gray-100 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-              <div className="w-24 h-24 bg-navy/5 rounded-full flex items-center justify-center mx-auto mb-6">
-                <Compass className="w-10 h-10 text-gold" />
-              </div>
-              <h3 className="text-2xl font-extrabold text-navy mb-2">No Expeditions Yet</h3>
-              <p className="text-gray-500 mb-8 max-w-md mx-auto">Your vault is currently empty. Ready to explore the magnificent islands of Komodo?</p>
-              <button onClick={() => router.push('/')} className="bg-navy text-white px-8 py-4 rounded-xl font-bold hover:bg-[#122643] transition-all shadow-xl shadow-navy/20 hover:-translate-y-1">
-                Discover Voyages
-              </button>
-            </motion.div>
-          ) : (
-            <div className="space-y-6">
-              {bookings.map((booking, index) => {
-                const upcoming = isUpcoming(booking.dateOfDeparture, booking.status);
-                
+              {/* Looping Tiket (Sleek Rows) */}
+              {(activeTab === 'upcoming' ? upcomingBookings : pastBookings).map((booking) => {
+                const dateInfo = getDayAndMonth(booking.dateOfDeparture);
+                const isExpanded = expandedBookingId === booking.id;
+
                 return (
-                  <motion.div 
-                    key={booking.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.1 * index }}
-                    className={`bg-white rounded-[2.5rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] overflow-hidden flex flex-col relative group transition-all hover:shadow-xl ${upcoming ? 'border-2 border-gold/30' : 'border border-gray-100'}`}
-                  >
-                    {upcoming && (
-                      <div className="absolute top-0 right-0 bg-gold text-navy text-[10px] font-extrabold px-4 py-1.5 rounded-bl-2xl z-20 uppercase tracking-widest shadow-sm">
-                        Upcoming Voyage
-                      </div>
-                    )}
-
-                    <div className="flex flex-col md:flex-row relative z-10 bg-white">
+                  <div key={booking.id} className="bg-white rounded-[1.5rem] shadow-sm hover:shadow-md border border-gray-100 overflow-hidden transition-all duration-300">
+                    
+                    {/* BARIS UTAMA (COMPACT) */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between p-4 md:p-6 cursor-pointer" onClick={() => toggleExpand(booking.id)}>
                       
-                      <div className="hidden md:block absolute left-[30%] top-0 bottom-0 w-px border-l-[1.5px] border-dashed border-gray-200" />
-                      <div className="hidden md:block absolute left-[30%] -top-3 w-6 h-6 bg-[#F8F9FA] rounded-full -translate-x-1/2 shadow-inner" />
-                      <div className="hidden md:block absolute left-[30%] -bottom-3 w-6 h-6 bg-[#F8F9FA] rounded-full -translate-x-1/2 shadow-inner" />
+                      {/* Tanggal & Rute */}
+                      <div className="flex items-center gap-5 md:w-1/3 mb-4 md:mb-0">
+                        <div className="bg-navy/5 border border-navy/10 rounded-xl w-16 h-16 flex flex-col items-center justify-center shrink-0">
+                          <span className="text-gold text-xs font-extrabold uppercase tracking-widest leading-none">{dateInfo.month}</span>
+                          <span className="text-navy text-2xl font-extrabold leading-tight">{dateInfo.day}</span>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Route</p>
+                          <p className="text-sm md:text-base font-extrabold text-navy flex items-center gap-2">
+                            Lombok <ArrowRight className="w-3 h-3 text-gold" /> Komodo
+                          </p>
+                        </div>
+                      </div>
 
-                      <div className={`p-6 md:w-[30%] flex flex-col justify-center items-center text-center ${upcoming ? 'bg-gold/5' : 'bg-navy/5'}`}>
-                        <span className={`px-4 py-1.5 rounded-full text-[10px] font-extrabold uppercase tracking-widest mb-4 shadow-sm ${
-                          booking.status === 'PAID' ? 'bg-green-100 text-green-700 border border-green-200' : 
-                          booking.status === 'FAILED' ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-yellow-100 text-yellow-700 border border-yellow-200'
+                      {/* Info Kabin & Tamu */}
+                      <div className="flex items-center gap-6 md:w-1/3 mb-4 md:mb-0 border-l-2 border-dashed border-gray-100 pl-0 md:pl-6">
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Cabin Class</p>
+                          <p className="text-sm font-bold text-navy truncate max-w-[150px]">{booking.cabinClass}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Guests</p>
+                          <p className="text-sm font-bold text-navy flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-gold"/> {booking.paxCount} Pax</p>
+                        </div>
+                      </div>
+
+                      {/* Status & Tombol Expand */}
+                      <div className="flex items-center justify-between md:justify-end gap-4 md:w-1/3">
+                        <span className={`px-3 py-1.5 rounded-md text-[10px] font-extrabold uppercase tracking-widest ${
+                          booking.status === 'PAID' ? 'bg-green-50 text-green-600 border border-green-100' : 'bg-yellow-50 text-yellow-600 border border-yellow-100'
                         }`}>
                           {booking.status}
                         </span>
-                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-1">Booking Ref</p>
-                        <p className="font-mono text-sm font-extrabold text-navy truncate w-full px-2">{booking.id}</p>
+                        <button className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${isExpanded ? 'bg-navy text-white' : 'bg-gray-50 text-navy hover:bg-gold/20 hover:text-gold'}`}>
+                          <ChevronDown className={`w-5 h-5 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                        </button>
                       </div>
 
-                      <div className="p-6 md:p-8 md:w-[70%] flex flex-col justify-between">
-                        <div>
-                          <div className="flex items-start justify-between mb-6">
-                            <div>
-                              <div className="flex items-center gap-3 text-navy font-extrabold text-xl mb-2">
-                                Lombok <MapPin className="w-5 h-5 text-gold" /> Komodo
-                              </div>
-                              <div className="flex items-center gap-2 text-gray-500 text-sm font-semibold bg-gray-50 px-3 py-1.5 rounded-lg w-max">
-                                <Calendar className="w-4 h-4 text-navy" />
-                                {formatDate(booking.dateOfDeparture)}
-                              </div>
-                            </div>
-                            <div className="text-right">
-                              <p className="text-[10px] text-gray-400 uppercase font-bold tracking-widest mb-1">Cabin Class</p>
-                              <p className="text-navy font-extrabold text-lg">{booking.cabinClass}</p>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-6 text-sm text-gray-500 mb-6">
-                            <div className="flex items-center gap-2">
-                              <div className="bg-gray-50 p-1.5 rounded-lg"><Users className="w-4 h-4 text-navy" /></div>
-                              <span className="font-semibold">{booking.paxCount} Guest{booking.paxCount > 1 ? 's' : ''}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <div className="bg-gray-50 p-1.5 rounded-lg"><Clock className="w-4 h-4 text-navy" /></div>
-                              <span className="font-semibold">4 Days 3 Nights</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-5 border-t border-gray-100 gap-4">
-                          <button 
-                            onClick={() => toggleExpand(booking.id)}
-                            className="flex items-center gap-2 text-sm font-bold text-navy hover:text-gold transition-colors w-max"
-                          >
-                            <User className="w-4 h-4" /> Passenger Manifest
-                            <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${expandedBookingId === booking.id ? 'rotate-180' : ''}`} />
-                          </button>
-                          
-                          {upcoming && (
-                            <button 
-                              onClick={() => router.push(`/dashboard/reschedule/${booking.id}`)}
-                              className="bg-white border-2 border-gray-100 text-navy hover:border-gold hover:text-gold px-5 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm flex items-center justify-center gap-2 w-full sm:w-auto"
-                            >
-                              <Calendar className="w-4 h-4" /> Reschedule
-                            </button>
-                          )}
-                        </div>
-                      </div>
                     </div>
 
-                    {/* === INTEGRASI KOMPONEN JURNAL ULASAN HARIAN === */}
-                    {booking.status === 'PAID' && (
-                      <div className="px-6 pb-6 md:px-8 md:pb-8 bg-white relative z-10">
-                        <ReviewManager booking={booking} userProfile={userProfile} />
-                      </div>
-                    )}
-
-                    {/* Dropdown Data Penumpang (Accordion) */}
+                    {/* AREA DETAIL YANG BISA DI-EXPAND */}
                     <AnimatePresence>
-                      {expandedBookingId === booking.id && (
+                      {isExpanded && (
                         <motion.div 
-                          initial={{ height: 0, opacity: 0 }}
-                          animate={{ height: "auto", opacity: 1 }}
-                          exit={{ height: 0, opacity: 0 }}
-                          transition={{ duration: 0.3, ease: "easeInOut" }}
-                          className="bg-gray-50 border-t border-gray-100 overflow-hidden"
+                          initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+                          className="border-t border-gray-100 bg-[#fdfbf7] overflow-hidden"
                         >
                           <div className="p-6 md:p-8">
-                            <h4 className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                              <Ticket className="w-3 h-3" /> Detailed Manifest
-                            </h4>
-                            <div className="grid grid-cols-1 gap-3">
-                              {booking.passengersManifest?.map((pax, idx) => (
-                                <div key={idx} className="bg-white p-5 rounded-2xl border border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-sm hover:border-gold/30 transition-colors">
-                                  <div className="flex items-center gap-4">
-                                    <div className="bg-navy/5 p-3 rounded-xl hidden sm:block border border-navy/5">
-                                      <User className="w-5 h-5 text-navy" />
+                            
+                            {/* Baris Tindakan Cepat */}
+                            <div className="flex flex-wrap gap-3 mb-8">
+                              {/* --- TOMBOL DOWNLOAD E-TICKET YANG SUDAH DIPERBARUI --- */}
+                              <button 
+                                onClick={() => window.open(`/ticket/${booking.id}`, '_blank')}
+                                className="bg-white border border-gray-200 hover:border-gold text-navy text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-colors"
+                              >
+                                <Ticket className="w-4 h-4 text-gold" /> Download E-Ticket
+                              </button>
+                              
+                              {activeTab === 'upcoming' && (
+                                <button onClick={() => router.push(`/dashboard/reschedule/${booking.id}`)} className="bg-white border border-gray-200 hover:border-gold text-navy text-xs font-bold px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-colors">
+                                  <Calendar className="w-4 h-4 text-gold" /> Request Reschedule
+                                </button>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                              
+                              {/* Kolom 1: Passenger Manifest */}
+                              <div>
+                                <h4 className="text-[10px] font-extrabold text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                                  <User className="w-3 h-3" /> Detailed Manifest
+                                </h4>
+                                <div className="space-y-3">
+                                  {booking.passengersManifest?.map((pax, idx) => (
+                                    <div key={idx} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex justify-between items-center">
+                                      <div>
+                                        <p className="text-sm font-extrabold text-navy flex items-center gap-2">
+                                          {pax.fullName}
+                                          {idx === 0 && <span className="bg-gold/20 text-gold text-[9px] px-2 py-0.5 rounded uppercase tracking-wider font-bold">Lead</span>}
+                                        </p>
+                                        <p className="text-[10px] text-gray-500 mt-1 uppercase tracking-widest">
+                                          {pax.nationality} • {pax.gender} • Passport: {pax.passportNumber}
+                                        </p>
+                                      </div>
                                     </div>
-                                    <div>
-                                      <p className="text-base font-extrabold text-navy flex items-center gap-2">
-                                        {pax.fullName}
-                                        {idx === 0 && <span className="bg-gold/20 text-gold text-[10px] px-2.5 py-0.5 rounded-full uppercase tracking-wider font-bold">Lead</span>}
-                                      </p>
-                                      <p className="text-xs font-semibold text-gray-500 mt-1">
-                                        {pax.nationality} • {pax.gender} • <span className="text-navy">{pax.age} Yrs</span>
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="text-left sm:text-right bg-gray-50 sm:bg-transparent p-3 sm:p-0 rounded-xl">
-                                    <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Passport</p>
-                                    <p className="text-sm font-bold text-navy font-mono">{pax.passportNumber}</p>
-                                    {pax.dietaryRequirements && pax.dietaryRequirements !== 'None' && (
-                                      <p className="text-[10px] bg-red-50 text-red-600 font-extrabold uppercase px-2 py-1 rounded-md mt-2 inline-block sm:block w-max sm:ml-auto">
-                                        {pax.dietaryRequirements}
-                                      </p>
-                                    )}
-                                  </div>
+                                  ))}
                                 </div>
-                              ))}
+                              </div>
+
+                              {/* Kolom 2: Voyage Journal / Review Manager */}
+                              {booking.status === 'PAID' && (
+                                <div>
+                                  <ReviewManager booking={booking} userProfile={userProfile} />
+                                </div>
+                              )}
+
                             </div>
                           </div>
                         </motion.div>
                       )}
                     </AnimatePresence>
-                  </motion.div>
+                  </div>
                 );
               })}
-            </div>
+            </motion.div>
           )}
-          
-          {bookings.length > 0 && (
-            <div className="mt-8 sm:hidden">
-              <button 
-                onClick={() => router.push('/')}
-                className="w-full flex items-center justify-center gap-2 bg-gold hover:bg-[#b8972e] text-navy px-5 py-4 rounded-2xl font-bold shadow-lg shadow-gold/20 transition-all"
-              >
-                <Plus className="w-5 h-5" /> Book Another Voyage
-              </button>
-            </div>
+
+          {/* --- TAB: VVIP SERVICES (COMING SOON FEATURES) --- */}
+          {activeTab === 'services' && (
+            <motion.div key="services" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+              <div className="bg-navy rounded-[2rem] p-8 md:p-10 text-white relative overflow-hidden shadow-xl">
+                <div className="absolute inset-0 bg-cover bg-center opacity-10 mix-blend-overlay" style={{ backgroundImage: 'url("https://images.unsplash.com/photo-1540946485063-a40da27545f8?q=80&w=2000&auto=format&fit=crop")' }} />
+                <div className="relative z-10 max-w-2xl">
+                  <h2 className="text-3xl font-extrabold mb-2">Elevate Your Journey</h2>
+                  <p className="text-gray-400 text-sm leading-relaxed">Our concierge team is preparing exclusive additions to make your next voyage truly unforgettable. Stay tuned for these upcoming privileges.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {[
+                  { title: "Private Yacht Charter", desc: "Charter the entire phinisi exclusively for your family or corporate retreat.", icon: Anchor },
+                  { title: "Helicopter Transfer", desc: "Skip the traffic. Direct VIP transfer from Bali Airport to the harbor.", icon: PlaneTakeoff },
+                  { title: "In-Cabin Champagne", desc: "Pre-order Dom Pérignon to be chilled and waiting in your suite upon arrival.", icon: Wine },
+                  { title: "Exclusive Merchandise", desc: "Premium PMM Reserve apparel, dive gear, and souvenirs delivered to your cabin.", icon: ShoppingBag },
+                  { title: "Private Dive Master", desc: "Hire a dedicated 1-on-1 dive instructor for your entire Komodo expedition.", icon: Compass },
+                ].map((service, idx) => {
+                  const Icon = service.icon;
+                  return (
+                    <div key={idx} className="bg-white p-6 rounded-[1.5rem] border border-gray-100 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden group cursor-pointer">
+                      <div className="absolute top-4 right-4 bg-gray-100 text-gray-500 text-[9px] font-extrabold px-2.5 py-1 rounded-md uppercase tracking-widest group-hover:bg-gold group-hover:text-navy transition-colors">
+                        Coming Soon
+                      </div>
+                      <div className="w-12 h-12 bg-gray-50 rounded-xl flex items-center justify-center mb-5 border border-gray-100 group-hover:border-gold/30 group-hover:bg-gold/5 transition-colors">
+                        <Icon className="w-6 h-6 text-navy group-hover:text-gold transition-colors" />
+                      </div>
+                      <h3 className="text-lg font-extrabold text-navy mb-2">{service.title}</h3>
+                      <p className="text-xs text-gray-500 leading-relaxed mb-4">{service.desc}</p>
+                      <button className="text-[10px] font-bold text-navy uppercase tracking-widest flex items-center gap-1 group-hover:text-gold transition-colors">
+                        Explore Options <ExternalLink className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
           )}
-          
-        </div>
+
+        </AnimatePresence>
       </main>
+      
+      {/* Tombol Book Mobile */}
+      <div className="fixed bottom-6 right-6 z-50 md:hidden">
+        <button onClick={() => router.push('/')} className="w-14 h-14 bg-gold text-navy rounded-full flex items-center justify-center shadow-2xl border-2 border-white">
+          <Plus className="w-6 h-6" />
+        </button>
+      </div>
+
     </div>
   );
 }
